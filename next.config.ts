@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Allow ngrok (and similar tunnels) to load Next.js dev assets / HMR
+  allowedDevOrigins: [
+    "shopping-abrasion-raking.ngrok-free.dev",
+    "*.ngrok-free.dev",
+    "*.ngrok-free.app",
+  ],
 };
 
 export default nextConfig;

@@ -1,0 +1,403 @@
+// Influence — Creator-centric schema (multi-platform ready)
+// Core entity: CreatorProfile → SocialAccount[] (Instagram MVP, TikTok/YouTube later)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  CREATOR
+  BRAND
+}
+
+enum SocialPlatform {
+  INSTAGRAM
+  TIKTOK
+  YOUTUBE
+  LINKEDIN
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  COUNTERED
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationType {
+  OFFER_RECEIVED
+  OFFER_ACCEPTED
+  OFFER_DECLINED
+  OFFER_COUNTERED
+  NEW_MESSAGE
+  REVIEW_RECEIVED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  FILE
+  SYSTEM
+  OFFER_UPDATE
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+// ─── Auth (Better Auth compatible) ───────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          UserRole?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  sessions        Session[]
+  accounts        Account[]
+  creatorProfile  CreatorProfile?
+  brandProfile    BrandProfile?
+  sentOffers      Offer[]         @relation("BrandOffers")
+  reviewsGiven    Review[]        @relation("ReviewsGiven")
+  reviewsReceived Review[]        @relation("ReviewsReceived")
+  notifications   Notification[]
+  savedCreators   SavedCreator[]
+  conversationParticipants ConversationParticipant[]
+  messages        Message[]
+  auditLogs       AuditLog[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ─── Creator (core entity) ───────────────────────────────────────────────────
+
+model CreatorProfile {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName          String
+  bio                  String?
+  location             String?
+  city                 String?
+  country              String    @default("PK")
+  gender               Gender?
+  categories           String[]  @default([])
+  languages            String[]  @default([])
+  priceFromPkr         Int?
+  storyPricePkr        Int?
+  reelPricePkr         Int?
+  postPricePkr         Int?
+  bundlePricePkr       Int?
+  isOnboarded          Boolean   @default(false)
+  isDiscoverable       Boolean   @default(true)
+  averageRating        Float     @default(0)
+  reviewCount          Int       @default(0)
+  completedCollabs     Int       @default(0)
+  lastActiveAt         DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
+
+  socialAccounts SocialAccount[]
+  portfolioItems PortfolioItem[]
+  offers         Offer[]         @relation("CreatorOffers")
+  savedBy        SavedCreator[]
+
+  @@index([isDiscoverable, deletedAt])
+  @@index([priceFromPkr])
+  @@index([averageRating])
+  @@index([location])
+}
+
+model BrandProfile {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName String
+  website     String?
+  industry    String?
+  bio         String?
+  location    String?
+  country     String    @default("PK")
+  isOnboarded Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+}
+
+// ─── Social accounts (platform-agnostic children of Creator) ─────────────────
+
+model SocialAccount {
+  id                   String         @id @default(uuid())
+  creatorProfileId     String
+  creatorProfile       CreatorProfile @relation(fields: [creatorProfileId], references: [id], onDelete: Cascade)
+  platform             SocialPlatform
+  platformUserId       String?
+  username             String
+  displayName          String?
+  profileImageUrl      String?
+  biography            String?
+  profileUrl           String?
+  isVerifiedByPlatform Boolean        @default(false)
+  isAnalyticsVerified  Boolean        @default(false)
+  accessTokenEnc       String?
+  refreshTokenEnc      String?
+  tokenExpiresAt       DateTime?
+  connectedAt          DateTime       @default(now())
+  lastSyncedAt         DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  deletedAt            DateTime?
+
+  metrics SocialMetric[]
+  posts   SocialPost[]
+
+  @@unique([platform, username])
+  @@unique([creatorProfileId, platform])
+  @@index([creatorProfileId])
+  @@index([platform])
+}
+
+model SocialMetric {
+  id               String        @id @default(uuid())
+  socialAccountId  String
+  socialAccount    SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  followers        Int           @default(0)
+  following        Int           @default(0)
+  mediaCount       Int           @default(0)
+  engagementRate   Float         @default(0)
+  avgLikes         Float         @default(0)
+  avgComments      Float         @default(0)
+  avgReelViews     Float         @default(0)
+  isCurrent        Boolean       @default(true)
+  capturedAt       DateTime      @default(now())
+  createdAt        DateTime      @default(now())
+
+  @@index([socialAccountId, isCurrent])
+  @@index([followers])
+  @@index([engagementRate])
+}
+
+model SocialPost {
+  id              String        @id @default(uuid())
+  socialAccountId String
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  platformPostId  String
+  mediaType       String
+  caption         String?
+  permalink       String?
+  thumbnailUrl    String?
+  mediaUrl        String?
+  likeCount       Int           @default(0)
+  commentCount    Int           @default(0)
+  viewCount       Int?
+  postedAt        DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([socialAccountId, platformPostId])
+  @@index([socialAccountId])
+}
+
+model PortfolioItem {
+  id               String         @id @default(uuid())
+  creatorProfileId String
+  creatorProfile   CreatorProfile @relation(fields: [creatorProfileId], references: [id], onDelete: Cascade)
+  title            String?
+  mediaUrl         String
+  thumbnailUrl     String?
+  mediaType        String         @default("IMAGE")
+  sortOrder        Int            @default(0)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  deletedAt        DateTime?
+
+  @@index([creatorProfileId])
+}
+
+// ─── Offers ──────────────────────────────────────────────────────────────────
+
+model Offer {
+  id               String         @id @default(uuid())
+  brandUserId      String
+  brandUser        User           @relation("BrandOffers", fields: [brandUserId], references: [id])
+  creatorProfileId String
+  creatorProfile   CreatorProfile @relation("CreatorOffers", fields: [creatorProfileId], references: [id])
+  title            String
+  description      String
+  deliverables     String[]
+  budgetPkr        Int
+  deadline         DateTime?
+  status           OfferStatus    @default(PENDING)
+  counterBudgetPkr Int?
+  counterMessage   String?
+  conversationId   String?        @unique
+  conversation     Conversation?  @relation(fields: [conversationId], references: [id])
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  deletedAt        DateTime?
+
+  @@index([brandUserId])
+  @@index([creatorProfileId])
+  @@index([status])
+}
+
+// ─── Messaging ───────────────────────────────────────────────────────────────
+
+model Conversation {
+  id            String    @id @default(uuid())
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  participants ConversationParticipant[]
+  messages     Message[]
+  offer        Offer?
+}
+
+model ConversationParticipant {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt     DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id])
+  type           MessageType  @default(TEXT)
+  body           String?
+  attachmentUrl  String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+// ─── Reviews ─────────────────────────────────────────────────────────────────
+
+model Review {
+  id         String    @id @default(uuid())
+  offerId    String?
+  reviewerId String
+  reviewer   User      @relation("ReviewsGiven", fields: [reviewerId], references: [id])
+  revieweeId String
+  reviewee   User      @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+  rating     Int
+  comment    String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  @@unique([reviewerId, revieweeId, offerId])
+  @@index([revieweeId])
+}
+
+// ─── Notifications & saved ───────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String?
+  href      String?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  deletedAt DateTime?
+
+  @@index([userId, isRead])
+}
+
+model SavedCreator {
+  id               String         @id @default(uuid())
+  userId           String
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  creatorProfileId String
+  creatorProfile   CreatorProfile @relation(fields: [creatorProfileId], references: [id], onDelete: Cascade)
+  createdAt        DateTime       @default(now())
+
+  @@unique([userId, creatorProfileId])
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String?
+  entityId  String?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+}
