@@ -9,7 +9,7 @@ export default async function BrandLayout({
 }) {
   await requireRole("BRAND");
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#ffffff_0%,#fafafa_40%,#ffffff_100%)]">
       <AppNav items={BRAND_NAV} />
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>
     </div>

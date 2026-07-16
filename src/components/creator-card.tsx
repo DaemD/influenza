@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Star } from "lucide-react";
-import { formatFollowers, formatPkr } from "@/lib/utils";
+import { BadgeCheck, Star } from "lucide-react";
+import { formatEngagement, formatFollowers, formatPkr } from "@/lib/utils";
 
 export type CreatorCardData = {
   id: string;
@@ -28,31 +28,48 @@ export function CreatorCard({ creator }: { creator: CreatorCardData }) {
   return (
     <Link
       href={`/brand/creators/${creator.id}`}
-      className="group block overflow-hidden rounded-xl bg-white transition-opacity hover:opacity-95"
+      className="group block"
     >
-      <div className="relative aspect-[3/4] overflow-hidden rounded-xl bg-neutral-100">
+      <div className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-[#f3f3f3]">
         {creator.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={creator.photoUrl}
             alt={creator.displayName}
-            className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+            className="size-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"
           />
         ) : (
-          <div className="flex size-full items-center justify-center bg-gradient-to-br from-neutral-200 via-neutral-100 to-[#ffe4ef]">
-            <span className="text-4xl font-semibold text-neutral-400">
+          <div className="flex size-full items-center justify-center bg-gradient-to-br from-[#f5f5f5] via-[#f0f0f0] to-[#ffe4ef]">
+            <span className="text-4xl font-semibold tracking-tight text-[#c4c4c4]">
               {creator.displayName.slice(0, 1).toUpperCase()}
             </span>
           </div>
         )}
-        <div className="absolute left-2.5 top-2.5 rounded-md bg-black/65 px-2 py-0.5 text-xs font-semibold text-white backdrop-blur-sm">
-          {formatFollowers(creator.followers)}
+
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/35 to-transparent opacity-80" />
+
+        <div className="absolute left-2.5 top-2.5 flex items-center gap-1.5">
+          <span className="rounded-lg bg-black/60 px-2 py-0.5 text-xs font-semibold text-white backdrop-blur-sm">
+            {formatFollowers(creator.followers)}
+          </span>
+          {creator.verified ? (
+            <span className="inline-flex items-center gap-0.5 rounded-lg bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-[#1a1a1a] backdrop-blur-sm">
+              <BadgeCheck className="size-3 text-[var(--brand)]" />
+              Verified
+            </span>
+          ) : null}
         </div>
+
+        {creator.engagementRate > 0 ? (
+          <span className="absolute bottom-2.5 left-2.5 rounded-lg bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-[#1a1a1a] backdrop-blur-sm">
+            {formatEngagement(creator.engagementRate)} eng.
+          </span>
+        ) : null}
       </div>
 
-      <div className="space-y-0.5 pt-2.5">
+      <div className="space-y-0.5 pt-3">
         <div className="flex items-center gap-1.5">
-          <h3 className="truncate text-[15px] font-semibold text-[#1a1a1a]">
+          <h3 className="truncate text-[15px] font-semibold tracking-tight text-[#1a1a1a]">
             {creator.displayName}
           </h3>
           {creator.averageRating > 0 ? (
@@ -63,16 +80,17 @@ export function CreatorCard({ creator }: { creator: CreatorCardData }) {
           ) : null}
         </div>
         <p className="truncate text-sm text-[#717171]">{title}</p>
-        <p className="text-[15px] font-semibold text-[#1a1a1a]">
-          {creator.priceFromPkr != null ? formatPkr(creator.priceFromPkr) : "Price on request"}
+        <p className="pt-0.5 text-[15px] font-semibold text-[#1a1a1a]">
+          {creator.priceFromPkr != null ? (
+            <>
+              from <span className="text-[var(--brand)]">{formatPkr(creator.priceFromPkr)}</span>
+            </>
+          ) : (
+            "Price on request"
+          )}
         </p>
         {creator.location ? (
-          <p className="truncate text-xs text-[#717171]">{creator.location}</p>
-        ) : null}
-        {creator.featured && creator.bio ? (
-          <p className="line-clamp-2 pt-1 text-xs leading-relaxed text-[#717171]">
-            {creator.bio}
-          </p>
+          <p className="truncate text-xs text-[#9a9a9a]">{creator.location}</p>
         ) : null}
       </div>
     </Link>
