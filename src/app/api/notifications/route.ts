@@ -1,20 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { prisma } from "@/lib/db";
+import { store } from "@/lib/store";
 
 export async function GET() {
   const session = await getSession();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const notifications = await prisma.notification.findMany({
-    where: { userId: session.user.id, deletedAt: null },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
-
-  return NextResponse.json({ notifications });
+  return NextResponse.json({ notifications: store.listNotifications(session.user.id) });
 }
 
 export async function PATCH(req: Request) {
@@ -25,19 +18,9 @@ export async function PATCH(req: Request) {
 
   const body = await req.json();
   if (body.markAllRead) {
-    await prisma.notification.updateMany({
-      where: { userId: session.user.id, isRead: false },
-      data: { isRead: true },
-    });
-    return NextResponse.json({ ok: true });
+    store.markNotificationsRead(session.user.id, true);
+  } else if (body.id) {
+    store.markNotificationsRead(session.user.id, body.id);
   }
-
-  if (body.id) {
-    await prisma.notification.updateMany({
-      where: { id: body.id, userId: session.user.id },
-      data: { isRead: true },
-    });
-  }
-
   return NextResponse.json({ ok: true });
 }

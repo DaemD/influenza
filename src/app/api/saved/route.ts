@@ -1,30 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { prisma } from "@/lib/db";
+import { store } from "@/lib/store";
 
 export async function GET() {
   const session = await getSession();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const saved = await prisma.savedCreator.findMany({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
-    include: {
-      creatorProfile: {
-        include: {
-          socialAccounts: {
-            where: { platform: "INSTAGRAM", deletedAt: null },
-            take: 1,
-            include: { metrics: { where: { isCurrent: true }, take: 1 } },
-          },
-        },
-      },
-    },
-  });
-
-  return NextResponse.json({ saved });
+  return NextResponse.json({ saved: store.listSaved(session.user.id) });
 }
 
 export async function POST(req: Request) {
@@ -38,15 +21,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing creatorProfileId" }, { status: 400 });
   }
 
-  const saved = await prisma.savedCreator.upsert({
-    where: {
-      userId_creatorProfileId: { userId: session.user.id, creatorProfileId },
-    },
-    create: { userId: session.user.id, creatorProfileId },
-    update: {},
-  });
-
-  return NextResponse.json({ saved });
+  return NextResponse.json({ saved: store.saveCreator(session.user.id, creatorProfileId) });
 }
 
 export async function DELETE(req: Request) {
@@ -56,8 +31,6 @@ export async function DELETE(req: Request) {
   }
 
   const { creatorProfileId } = await req.json();
-  await prisma.savedCreator.deleteMany({
-    where: { userId: session.user.id, creatorProfileId },
-  });
+  store.unsaveCreator(session.user.id, creatorProfileId);
   return NextResponse.json({ ok: true });
 }
