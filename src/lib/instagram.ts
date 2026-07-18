@@ -1,14 +1,8 @@
-import { store } from "@/lib/store";
-import { encryptSecret, decryptSecret } from "@/lib/crypto";
+import { prisma } from "@/lib/db";
+import { decryptSecret, encryptSecret } from "@/lib/crypto";
 
 const GRAPH = "https://graph.instagram.com";
 const API_VERSION = process.env.INSTAGRAM_GRAPH_API_VERSION ?? "v21.0";
-
-/** Ephemeral token storage (lost on restart — no Postgres yet). */
-const tokenVault = new Map<
-  string,
-  { accessTokenEnc: string; platformUserId: string; expiresAt: number }
->();
 
 export type InstagramConfig = {
   appId: string;
@@ -312,51 +306,130 @@ export async function syncInstagramAccountForUser(params: {
     avgReelViews
   );
 
-  const creator = store.upsertCreatorProfile(userId, {
-    displayName: profile.name || profile.username,
-    bio: profile.biography ?? null,
-    completeOnboarding: false,
-  });
-
-  creator.username = profile.username;
-  creator.photoUrl = profile.profile_picture_url ?? null;
-  creator.followers = profile.followers_count ?? 0;
-  creator.engagementRate = metrics.engagementRate;
-  creator.verified = true;
-  creator.posts = media.map((m) => ({
-    id: m.id,
-    mediaType: m.media_type,
-    caption: m.caption ?? null,
-    permalink: m.permalink ?? null,
-    thumbnailUrl: m.thumbnail_url ?? m.media_url ?? null,
-    mediaUrl: m.media_url ?? null,
-    likeCount: m.like_count ?? 0,
-    commentCount: m.comments_count ?? 0,
-    viewCount: m.view_count ?? null,
-    postedAt: m.timestamp ?? null,
-  }));
-
-  tokenVault.set(userId, {
-    accessTokenEnc: encryptSecret(accessToken),
-    platformUserId: igId,
-    expiresAt: Date.now() + expiresIn * 1000,
-  });
-
-  store.connectIgDemo(userId, profile.name || profile.username);
-  const ig = store.getIgStatus(userId);
-  if (ig) {
-    ig.username = profile.username;
-    ig.displayName = profile.name || profile.username;
-    ig.profileImageUrl = profile.profile_picture_url ?? null;
-    ig.followers = profile.followers_count ?? 0;
-    ig.engagementRate = metrics.engagementRate;
-    ig.verified = true;
-    ig.hasRealToken = true;
-    ig.lastSyncedAt = new Date().toISOString();
+  let creator = await prisma.creatorProfile.findUnique({ where: { userId } });
+  if (!creator) {
+    creator = await prisma.creatorProfile.create({
+      data: {
+        userId,
+        displayName: profile.name || profile.username,
+        bio: profile.biography ?? null,
+      },
+    });
+  } else if (!creator.displayName || creator.displayName === "Creator") {
+    await prisma.creatorProfile.update({
+      where: { id: creator.id },
+      data: {
+        displayName: profile.name || profile.username,
+        bio: creator.bio ?? profile.biography ?? null,
+      },
+    });
   }
 
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      role: "CREATOR",
+      image: profile.profile_picture_url ?? undefined,
+      name: profile.name || profile.username,
+    },
+  });
+
+  const tokenEnc = encryptSecret(accessToken);
+  const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000);
+
+  const account = await prisma.socialAccount.upsert({
+    where: {
+      creatorProfileId_platform: {
+        creatorProfileId: creator.id,
+        platform: "INSTAGRAM",
+      },
+    },
+    create: {
+      creatorProfileId: creator.id,
+      platform: "INSTAGRAM",
+      platformUserId: igId,
+      username: profile.username,
+      displayName: profile.name || profile.username,
+      profileImageUrl: profile.profile_picture_url ?? null,
+      biography: profile.biography ?? null,
+      profileUrl: `https://instagram.com/${profile.username}`,
+      isVerifiedByPlatform: false,
+      isAnalyticsVerified: true,
+      accessTokenEnc: tokenEnc,
+      tokenExpiresAt,
+      connectedAt: new Date(),
+      lastSyncedAt: new Date(),
+    },
+    update: {
+      platformUserId: igId,
+      username: profile.username,
+      displayName: profile.name || profile.username,
+      profileImageUrl: profile.profile_picture_url ?? null,
+      biography: profile.biography ?? null,
+      profileUrl: `https://instagram.com/${profile.username}`,
+      isAnalyticsVerified: true,
+      accessTokenEnc: tokenEnc,
+      tokenExpiresAt,
+      lastSyncedAt: new Date(),
+      deletedAt: null,
+    },
+  });
+
+  await prisma.socialMetric.updateMany({
+    where: { socialAccountId: account.id, isCurrent: true },
+    data: { isCurrent: false },
+  });
+
+  await prisma.socialMetric.create({
+    data: {
+      socialAccountId: account.id,
+      followers: profile.followers_count ?? 0,
+      following: profile.follows_count ?? 0,
+      mediaCount: profile.media_count ?? media.length,
+      engagementRate: metrics.engagementRate,
+      avgLikes: metrics.avgLikes,
+      avgComments: metrics.avgComments,
+      avgReelViews: metrics.avgReelViews,
+      isCurrent: true,
+    },
+  });
+
+  // Replace recent posts snapshot
+  await prisma.socialPost.deleteMany({ where: { socialAccountId: account.id } });
+  if (media.length) {
+    await prisma.socialPost.createMany({
+      data: media.map((m) => ({
+        socialAccountId: account.id,
+        platformPostId: m.id,
+        mediaType: m.media_type,
+        caption: m.caption ?? null,
+        permalink: m.permalink ?? null,
+        thumbnailUrl: m.thumbnail_url ?? m.media_url ?? null,
+        mediaUrl: m.media_url ?? null,
+        likeCount: m.like_count ?? 0,
+        commentCount: m.comments_count ?? 0,
+        viewCount: m.view_count ?? null,
+        postedAt: m.timestamp ? new Date(m.timestamp) : null,
+      })),
+    });
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "instagram.connect",
+      entity: "SocialAccount",
+      entityId: account.id,
+      meta: {
+        username: profile.username,
+        followers: profile.followers_count ?? 0,
+        engagementRate: metrics.engagementRate,
+      },
+    },
+  });
+
   return {
-    accountId: creator.id,
+    accountId: account.id,
     username: profile.username,
     displayName: profile.name || profile.username,
     profileImageUrl: profile.profile_picture_url ?? null,
@@ -366,31 +439,33 @@ export async function syncInstagramAccountForUser(params: {
   };
 }
 
-export async function resyncInstagramAccount(userId: string) {
-  const vault = tokenVault.get(userId);
-  if (!vault) {
+export async function resyncInstagramAccount(socialAccountId: string) {
+  const account = await prisma.socialAccount.findUnique({
+    where: { id: socialAccountId },
+    include: { creatorProfile: true },
+  });
+  if (!account?.accessTokenEnc || !account.platformUserId) {
     throw new Error("Instagram account is not connected with a stored token");
   }
 
-  let accessToken = decryptSecret(vault.accessTokenEnc);
+  let accessToken = decryptSecret(account.accessTokenEnc);
   let expiresIn = 60 * 60 * 24 * 60;
 
-  if (vault.expiresAt - Date.now() < 7 * 24 * 60 * 60 * 1000) {
+  // Refresh if expiring within 7 days
+  if (account.tokenExpiresAt && account.tokenExpiresAt.getTime() - Date.now() < 7 * 24 * 60 * 60 * 1000) {
     try {
       const refreshed = await refreshLongLivedToken(accessToken);
       accessToken = refreshed.accessToken;
       expiresIn = refreshed.expiresIn;
-      vault.accessTokenEnc = encryptSecret(accessToken);
-      vault.expiresAt = Date.now() + expiresIn * 1000;
     } catch {
-      // Continue with existing token
+      // Continue with existing token; user may need to reconnect
     }
   }
 
   return syncInstagramAccountForUser({
-    userId,
+    userId: account.creatorProfile.userId,
     accessToken,
-    platformUserId: vault.platformUserId,
+    platformUserId: account.platformUserId,
     expiresIn,
   });
 }

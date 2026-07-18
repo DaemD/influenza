@@ -1,52 +1,39 @@
 import { NextResponse } from "next/server";
-import { store } from "@/lib/store";
+import { prisma } from "@/lib/db";
 
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id } = await ctx.params;
-  const creator = store.getCreator(id);
-  if (!creator || !creator.isDiscoverable) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
 
-  return NextResponse.json({
-    profile: {
-      id: creator.id,
-      displayName: creator.displayName,
-      bio: creator.bio,
-      location: creator.location,
-      categories: creator.categories,
-      languages: creator.languages,
-      storyPricePkr: creator.storyPricePkr,
-      reelPricePkr: creator.reelPricePkr,
-      postPricePkr: creator.postPricePkr,
-      bundlePricePkr: creator.bundlePricePkr,
-      priceFromPkr: creator.priceFromPkr,
-      averageRating: creator.averageRating,
-      reviewCount: creator.reviewCount,
-      portfolioItems: [],
-      socialAccounts: [
-        {
-          id: `ig_${creator.id}`,
-          platform: "INSTAGRAM",
-          username: creator.username,
-          displayName: creator.displayName,
-          profileImageUrl: creator.photoUrl,
-          isAnalyticsVerified: creator.verified,
-          metrics: [
-            {
-              followers: creator.followers,
-              engagementRate: creator.engagementRate,
-            },
-          ],
-          posts: creator.posts,
+  const profile = await prisma.creatorProfile.findFirst({
+    where: { id, deletedAt: null, isDiscoverable: true },
+    include: {
+      socialAccounts: {
+        where: { deletedAt: null },
+        include: {
+          metrics: { where: { isCurrent: true }, take: 1 },
+          posts: { orderBy: { postedAt: "desc" }, take: 24 },
         },
-      ],
+      },
+      portfolioItems: { where: { deletedAt: null }, orderBy: { sortOrder: "asc" } },
       user: {
-        reviewsReceived: [],
+        include: {
+          reviewsReceived: {
+            where: { deletedAt: null },
+            orderBy: { createdAt: "desc" },
+            take: 10,
+            include: { reviewer: { select: { name: true, image: true } } },
+          },
+        },
       },
     },
   });
+
+  if (!profile) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ profile });
 }

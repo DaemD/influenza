@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/session";
-import { store } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PortfolioPosts } from "@/components/portfolio-posts";
@@ -8,7 +8,21 @@ import { cn, formatPkr } from "@/lib/utils";
 
 export default async function CreatorProfilePage() {
   const session = await requireRole("CREATOR");
-  const profile = store.getCreatorByUserId(session.user.id);
+  const profile = await prisma.creatorProfile.findUnique({
+    where: { userId: session.user.id },
+    include: {
+      socialAccounts: {
+        where: { deletedAt: null },
+        include: {
+          metrics: { where: { isCurrent: true }, take: 1 },
+          posts: { orderBy: { postedAt: "desc" }, take: 24 },
+        },
+      },
+    },
+  });
+
+  const posts =
+    profile?.socialAccounts.find((a) => a.platform === "INSTAGRAM")?.posts ?? [];
 
   return (
     <div className="space-y-6">
@@ -58,20 +72,37 @@ export default async function CreatorProfilePage() {
                 </p>
               </div>
             </div>
-            <div className="rounded-xl bg-neutral-50 p-4 text-sm">
-              <p className="font-medium">
-                INSTAGRAM · @{profile.username}{" "}
-                {profile.verified ? "· Verified analytics" : ""}
-              </p>
-              <p className="mt-1 text-neutral-500">
-                {profile.followers.toLocaleString()} followers · {profile.engagementRate.toFixed(1)}%
-                engagement
-              </p>
-            </div>
+            {profile.socialAccounts.map((a) => (
+              <div key={a.id} className="rounded-xl bg-neutral-50 p-4 text-sm">
+                <p className="font-medium">
+                  {a.platform} · @{a.username}{" "}
+                  {a.isAnalyticsVerified ? "· Verified analytics" : ""}
+                </p>
+                {a.metrics[0] ? (
+                  <p className="mt-1 text-neutral-500">
+                    {a.metrics[0].followers.toLocaleString()} followers ·{" "}
+                    {a.metrics[0].engagementRate.toFixed(1)}% engagement
+                  </p>
+                ) : null}
+              </div>
+            ))}
           </div>
 
           <div className="rounded-2xl border border-[#ebebeb] bg-white p-6">
-            <PortfolioPosts posts={profile.posts} />
+            <PortfolioPosts
+              posts={posts.map((post) => ({
+                id: post.id,
+                mediaType: post.mediaType,
+                caption: post.caption,
+                permalink: post.permalink,
+                thumbnailUrl: post.thumbnailUrl,
+                mediaUrl: post.mediaUrl,
+                likeCount: post.likeCount,
+                commentCount: post.commentCount,
+                viewCount: post.viewCount,
+                postedAt: post.postedAt?.toISOString() ?? null,
+              }))}
+            />
           </div>
         </>
       ) : (

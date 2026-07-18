@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { store } from "@/lib/store";
+import { prisma } from "@/lib/db";
+import { resyncInstagramAccount } from "@/lib/instagram";
 
 export async function POST() {
   const session = await getSession();
@@ -8,30 +9,29 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const ig = store.getIgStatus(session.user.id);
-  if (!ig) {
+  const profile = await prisma.creatorProfile.findUnique({
+    where: { userId: session.user.id },
+    include: {
+      socialAccounts: {
+        where: { platform: "INSTAGRAM", deletedAt: null, accessTokenEnc: { not: null } },
+        take: 1,
+      },
+    },
+  });
+
+  const account = profile?.socialAccounts[0];
+  if (!account) {
     return NextResponse.json(
-      { error: "No Instagram account connected. Use Connect Instagram first." },
+      { error: "No Instagram account with a stored OAuth token. Connect Instagram first." },
       { status: 400 }
     );
   }
 
-  // No DB — just bump demo metrics
-  ig.followers = Math.max(1000, ig.followers + Math.floor(Math.random() * 500));
-  ig.engagementRate = Math.round((2 + Math.random() * 4) * 10) / 10;
-  ig.lastSyncedAt = new Date().toISOString();
-
-  const profile = store.getCreatorByUserId(session.user.id);
-  if (profile) {
-    profile.followers = ig.followers;
-    profile.engagementRate = ig.engagementRate;
+  try {
+    const result = await resyncInstagramAccount(account.id);
+    return NextResponse.json({ ok: true, ...result });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Sync failed";
+    return NextResponse.json({ error: message }, { status: 502 });
   }
-
-  return NextResponse.json({
-    ok: true,
-    username: ig.username,
-    followers: ig.followers,
-    engagementRate: ig.engagementRate,
-    verified: true,
-  });
 }

@@ -5,29 +5,49 @@
 ## Stack
 
 - Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · shadcn/ui
-- Better Auth (in-memory for now) · React Query · Framer Motion
-
-> **Note:** Postgres/Prisma is temporarily removed. Data lives in an in-memory store and **resets on every server restart/redeploy**. Railway Postgres will be wired back later.
+- Better Auth · Prisma · PostgreSQL · React Query · Framer Motion
 
 ## Quick start
 
+### Local with Docker Postgres
+
 ```bash
 npm install
+npm run db:up
+npm run db:setup
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+### Or point at Railway Postgres
 
-Create an account via **Sign up** (no seed DB required). Discover still shows demo creators from the in-memory store.
+1. In Railway Postgres → **Connect** → copy the **public** `DATABASE_URL` (not `*.railway.internal`)
+2. Put it in `.env` as `DATABASE_URL=...`
+3. Run:
 
-## Scripts
+```bash
+npm install
+npx prisma db push
+npm run db:seed   # optional demo users
+npm run dev
+```
 
-| Script | Purpose |
+Demo accounts after seed (password `password123`):
+
+| Role | Email |
 |---|---|
-| `npm run dev` | Next.js dev server |
-| `npm run build` | Production build |
-| `npm run start` | Production server |
+| Brand | brand@influence.pk |
+| Creator | sara@influence.pk |
+
+## Railway deploy
+
+Web service env must include:
+
+- `DATABASE_URL` → reference from Postgres (`postgres.railway.internal` is fine **on Railway**)
+- `NEXT_PUBLIC_APP_URL` / `BETTER_AUTH_URL` → `https://influence.miless.app` (no trailing slash)
+- `META_*` + `TOKEN_ENCRYPTION_KEY` + strong `BETTER_AUTH_SECRET`
+
+Start command runs `prisma db push && next start` so tables are created on boot.
 
 ## Instagram OAuth
 
-See [docs/instagram-setup.md](docs/instagram-setup.md). Until Meta is configured, creator onboarding uses **demo** Instagram connect.
+See [docs/instagram-setup.md](docs/instagram-setup.md).

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
+import { prisma } from "@/lib/db";
 import { isInstagramOAuthConfigured } from "@/lib/instagram";
-import { store } from "@/lib/store";
 
 export async function GET() {
   const configured = isInstagramOAuthConfigured();
@@ -11,7 +11,20 @@ export async function GET() {
     return NextResponse.json({ configured, connected: false });
   }
 
-  const ig = store.getIgStatus(session.user.id);
+  const profile = await prisma.creatorProfile.findUnique({
+    where: { userId: session.user.id },
+    include: {
+      socialAccounts: {
+        where: { platform: "INSTAGRAM", deletedAt: null },
+        include: { metrics: { where: { isCurrent: true }, take: 1 } },
+        take: 1,
+      },
+    },
+  });
+
+  const ig = profile?.socialAccounts[0];
+  const metrics = ig?.metrics[0];
+
   return NextResponse.json({
     configured,
     connected: Boolean(ig),
@@ -20,11 +33,11 @@ export async function GET() {
           username: ig.username,
           displayName: ig.displayName,
           profileImageUrl: ig.profileImageUrl,
-          verified: ig.verified,
+          verified: ig.isAnalyticsVerified,
           lastSyncedAt: ig.lastSyncedAt,
-          followers: ig.followers,
-          engagementRate: ig.engagementRate,
-          hasRealToken: ig.hasRealToken,
+          followers: metrics?.followers ?? 0,
+          engagementRate: metrics?.engagementRate ?? 0,
+          hasRealToken: Boolean(ig.accessTokenEnc),
         }
       : null,
   });

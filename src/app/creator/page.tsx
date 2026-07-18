@@ -1,16 +1,29 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/session";
-import { store } from "@/lib/store";
+import { prisma } from "@/lib/db";
 import { buttonVariants } from "@/components/ui/button";
 import { cn, formatFollowers, formatEngagement } from "@/lib/utils";
 
 export default async function CreatorHomePage() {
   const session = await requireRole("CREATOR");
-  const profile = store.getCreatorByUserId(session.user.id);
-  const offers = store
-    .listOffersForCreator(session.user.id)
-    .filter((o) => o.status === "PENDING")
-    .slice(0, 5);
+  const profile = await prisma.creatorProfile.findUnique({
+    where: { userId: session.user.id },
+    include: {
+      socialAccounts: {
+        where: { platform: "INSTAGRAM", deletedAt: null },
+        include: { metrics: { where: { isCurrent: true }, take: 1 } },
+        take: 1,
+      },
+      offers: {
+        where: { status: "PENDING", deletedAt: null },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      },
+    },
+  });
+
+  const ig = profile?.socialAccounts[0];
+  const metrics = ig?.metrics[0];
 
   return (
     <div className="space-y-8">
@@ -42,18 +55,18 @@ export default async function CreatorHomePage() {
         <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
           <p className="text-xs text-neutral-400">Followers</p>
           <p className="mt-1 text-2xl font-semibold">
-            {profile?.followers ? formatFollowers(profile.followers) : "—"}
+            {metrics ? formatFollowers(metrics.followers) : "—"}
           </p>
         </div>
         <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
           <p className="text-xs text-neutral-400">Engagement</p>
           <p className="mt-1 text-2xl font-semibold">
-            {profile?.engagementRate ? formatEngagement(profile.engagementRate) : "—"}
+            {metrics ? formatEngagement(metrics.engagementRate) : "—"}
           </p>
         </div>
         <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
           <p className="text-xs text-neutral-400">Pending offers</p>
-          <p className="mt-1 text-2xl font-semibold">{offers.length}</p>
+          <p className="mt-1 text-2xl font-semibold">{profile?.offers.length ?? 0}</p>
         </div>
       </div>
 
@@ -67,9 +80,9 @@ export default async function CreatorHomePage() {
             View all
           </Link>
         </div>
-        {offers.length ? (
+        {profile?.offers.length ? (
           <ul className="mt-4 divide-y divide-neutral-100">
-            {offers.map((o) => (
+            {profile.offers.map((o) => (
               <li key={o.id} className="flex items-center justify-between py-3">
                 <div>
                   <p className="text-sm font-medium">{o.title}</p>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { store } from "@/lib/store";
+import { prisma } from "@/lib/db";
 
 export async function POST(req: Request) {
   const session = await getSession();
@@ -14,25 +14,43 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid review" }, { status: 400 });
   }
 
-  const creator = store.getCreatorByUserId(body.revieweeId);
-  if (creator) {
-    const total = creator.averageRating * creator.reviewCount + rating;
-    creator.reviewCount += 1;
-    creator.averageRating = Math.round((total / creator.reviewCount) * 10) / 10;
-  }
-
-  store.addNotification({
-    userId: body.revieweeId,
-    type: "REVIEW_RECEIVED",
-    title: "New review",
-    body: body.comment?.slice(0, 100) ?? null,
-  });
-
-  return NextResponse.json({
-    review: {
-      id: `review_${Date.now()}`,
+  const review = await prisma.review.create({
+    data: {
+      reviewerId: session.user.id,
+      revieweeId: body.revieweeId,
+      offerId: body.offerId ?? null,
       rating,
       comment: body.comment ?? null,
     },
   });
+
+  const agg = await prisma.review.aggregate({
+    where: { revieweeId: body.revieweeId, deletedAt: null },
+    _avg: { rating: true },
+    _count: true,
+  });
+
+  const creator = await prisma.creatorProfile.findUnique({
+    where: { userId: body.revieweeId },
+  });
+  if (creator) {
+    await prisma.creatorProfile.update({
+      where: { id: creator.id },
+      data: {
+        averageRating: agg._avg.rating ?? 0,
+        reviewCount: agg._count,
+      },
+    });
+  }
+
+  await prisma.notification.create({
+    data: {
+      userId: body.revieweeId,
+      type: "REVIEW_RECEIVED",
+      title: "New review",
+      body: body.comment?.slice(0, 100),
+    },
+  });
+
+  return NextResponse.json({ review });
 }
