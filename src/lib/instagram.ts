@@ -337,6 +337,51 @@ export async function syncInstagramAccountForUser(params: {
   const tokenEnc = encryptSecret(accessToken);
   const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000);
 
+  // `(platform, username)` is globally unique. Clear seed/demo/soft-deleted rows
+  // that hold this handle (or IG user id) so reconnect / real OAuth can succeed.
+  const conflicting = await prisma.socialAccount.findMany({
+    where: {
+      platform: "INSTAGRAM",
+      OR: [
+        { username: profile.username },
+        { platformUserId: igId },
+      ],
+      NOT: { creatorProfileId: creator.id },
+    },
+    include: { creatorProfile: { select: { userId: true } } },
+  });
+
+  for (const row of conflicting) {
+    const isOrphan =
+      row.deletedAt != null ||
+      !row.accessTokenEnc ||
+      row.creatorProfile.userId === userId;
+
+    if (!isOrphan) {
+      throw new Error(
+        "This Instagram account is already connected to another Influence profile. Disconnect it there first, or use a different Instagram account."
+      );
+    }
+
+    await prisma.socialAccount.delete({ where: { id: row.id } });
+  }
+
+  const accountData = {
+    platformUserId: igId,
+    username: profile.username,
+    displayName: profile.name || profile.username,
+    profileImageUrl: profile.profile_picture_url ?? null,
+    biography: profile.biography ?? null,
+    profileUrl: `https://instagram.com/${profile.username}`,
+    isVerifiedByPlatform: false,
+    isAnalyticsVerified: true,
+    accessTokenEnc: tokenEnc,
+    tokenExpiresAt,
+    connectedAt: new Date(),
+    lastSyncedAt: new Date(),
+    deletedAt: null as Date | null,
+  };
+
   const account = await prisma.socialAccount.upsert({
     where: {
       creatorProfileId_platform: {
@@ -347,32 +392,9 @@ export async function syncInstagramAccountForUser(params: {
     create: {
       creatorProfileId: creator.id,
       platform: "INSTAGRAM",
-      platformUserId: igId,
-      username: profile.username,
-      displayName: profile.name || profile.username,
-      profileImageUrl: profile.profile_picture_url ?? null,
-      biography: profile.biography ?? null,
-      profileUrl: `https://instagram.com/${profile.username}`,
-      isVerifiedByPlatform: false,
-      isAnalyticsVerified: true,
-      accessTokenEnc: tokenEnc,
-      tokenExpiresAt,
-      connectedAt: new Date(),
-      lastSyncedAt: new Date(),
+      ...accountData,
     },
-    update: {
-      platformUserId: igId,
-      username: profile.username,
-      displayName: profile.name || profile.username,
-      profileImageUrl: profile.profile_picture_url ?? null,
-      biography: profile.biography ?? null,
-      profileUrl: `https://instagram.com/${profile.username}`,
-      isAnalyticsVerified: true,
-      accessTokenEnc: tokenEnc,
-      tokenExpiresAt,
-      lastSyncedAt: new Date(),
-      deletedAt: null,
-    },
+    update: accountData,
   });
 
   await prisma.socialMetric.updateMany({
