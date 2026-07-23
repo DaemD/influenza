@@ -16,6 +16,10 @@ export const metadata: Metadata = {
   },
   description:
     "Discover, hire, and collaborate with Instagram creators in Pakistan. Marketplace for brands and influencers.",
+  icons: {
+    icon: [{ url: "/branding/app-icon.png", type: "image/png" }],
+    apple: [{ url: "/branding/app-icon.png", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({
