@@ -228,17 +228,20 @@ async function tryFetchMediaViews(
   mediaId: string,
   accessToken: string
 ): Promise<{ views: number | null; error?: string; requestUrl: string }> {
+  // `plays` is not valid for Instagram Login media insights — Meta rejects the whole call.
+  // Allowed examples: views, reach, total_views, likes, comments, shares, saved, ...
+  const metric = "views,reach,total_views";
   const version = API_VERSION;
-  const requestUrl = `https://graph.instagram.com/${version}/${mediaId}/insights?metric=views,plays,reach&access_token=REDACTED`;
+  const requestUrl = `https://graph.instagram.com/${version}/${mediaId}/insights?metric=${metric}&access_token=REDACTED`;
   try {
     const insights = await graphGet<{
       data?: Array<{ name: string; values?: Array<{ value: number }> }>;
       error?: { message?: string };
-    }>(`${mediaId}/insights`, accessToken, { metric: "views,plays,reach" });
+    }>(`${mediaId}/insights`, accessToken, { metric });
     const values = insights.data ?? [];
     const views =
       values.find((v) => v.name === "views")?.values?.[0]?.value ??
-      values.find((v) => v.name === "plays")?.values?.[0]?.value ??
+      values.find((v) => v.name === "total_views")?.values?.[0]?.value ??
       null;
     console.info("[instagram/insights] ok", { mediaId, views, requestUrl });
     return { views, requestUrl };
