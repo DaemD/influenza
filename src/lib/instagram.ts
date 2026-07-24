@@ -228,9 +228,9 @@ async function tryFetchMediaViews(
   mediaId: string,
   accessToken: string
 ): Promise<{ views: number | null; error?: string; requestUrl: string }> {
-  // `plays` is not valid for Instagram Login media insights — Meta rejects the whole call.
-  // Allowed examples: views, reach, total_views, likes, comments, shares, saved, ...
-  const metric = "views,reach,total_views";
+  // Media insights (Instagram Login) — only request metrics this endpoint accepts.
+  // Invalid metric names fail the entire request (seen with `plays`, `total_views`).
+  const metric = "views,reach";
   const version = API_VERSION;
   const requestUrl = `https://graph.instagram.com/${version}/${mediaId}/insights?metric=${metric}&access_token=REDACTED`;
   try {
@@ -239,10 +239,7 @@ async function tryFetchMediaViews(
       error?: { message?: string };
     }>(`${mediaId}/insights`, accessToken, { metric });
     const values = insights.data ?? [];
-    const views =
-      values.find((v) => v.name === "views")?.values?.[0]?.value ??
-      values.find((v) => v.name === "total_views")?.values?.[0]?.value ??
-      null;
+    const views = values.find((v) => v.name === "views")?.values?.[0]?.value ?? null;
     console.info("[instagram/insights] ok", { mediaId, views, requestUrl });
     return { views, requestUrl };
   } catch (e) {
