@@ -42,8 +42,28 @@ function InstagramSettingsInner({ email }: { email: string }) {
       if (!res.ok) throw new Error(json.error ?? "Sync failed");
       return json;
     },
-    onSuccess: () => {
-      toast.success("Analytics refreshed");
+    onSuccess: (data: {
+      insights?: {
+        insightsAttempted?: number;
+        insightsSucceeded?: number;
+        sampleRequestUrl?: string | null;
+        sampleErrors?: Array<{ error?: string }>;
+      };
+    }) => {
+      const i = data?.insights;
+      if (i && typeof i.insightsAttempted === "number") {
+        toast.success(
+          `Synced — insights ${i.insightsSucceeded ?? 0}/${i.insightsAttempted} ok`
+        );
+        if (i.sampleRequestUrl) {
+          console.info("[instagram sync] sample insights URL:", i.sampleRequestUrl);
+        }
+        if (i.sampleErrors?.length) {
+          console.warn("[instagram sync] insights errors:", i.sampleErrors);
+        }
+      } else {
+        toast.success("Analytics refreshed");
+      }
       void qc.invalidateQueries({ queryKey: ["instagram-status"] });
     },
     onError: (e: Error) => toast.error(e.message),

@@ -214,39 +214,66 @@ export async function fetchRecentMedia(
   return data.data ?? [];
 }
 
+type InsightsCallResult = {
+  mediaId: string;
+  mediaType: string;
+  ok: boolean;
+  views: number | null;
+  error?: string;
+  /** Token-redacted URL for Meta App Review / debugging */
+  requestUrl: string;
+};
+
 async function tryFetchMediaViews(
   mediaId: string,
   accessToken: string
-): Promise<number | null> {
+): Promise<{ views: number | null; error?: string; requestUrl: string }> {
+  const version = API_VERSION;
+  const requestUrl = `https://graph.instagram.com/${version}/${mediaId}/insights?metric=views,plays,reach&access_token=REDACTED`;
   try {
     const insights = await graphGet<{
       data?: Array<{ name: string; values?: Array<{ value: number }> }>;
+      error?: { message?: string };
     }>(`${mediaId}/insights`, accessToken, { metric: "views,plays,reach" });
     const values = insights.data ?? [];
-    return (
+    const views =
       values.find((v) => v.name === "views")?.values?.[0]?.value ??
       values.find((v) => v.name === "plays")?.values?.[0]?.value ??
-      null
-    );
-  } catch {
-    return null;
+      null;
+    console.info("[instagram/insights] ok", { mediaId, views, requestUrl });
+    return { views, requestUrl };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : "insights failed";
+    console.warn("[instagram/insights] fail", { mediaId, error, requestUrl });
+    return { views: null, error, requestUrl };
   }
 }
 
 async function enrichMediaWithViews(
   media: InstagramMediaItem[],
   accessToken: string
-): Promise<InstagramMediaItem[]> {
+): Promise<{ media: InstagramMediaItem[]; insights: InsightsCallResult[] }> {
   const enriched: InstagramMediaItem[] = [];
+  const insights: InsightsCallResult[] = [];
+
   for (const item of media) {
     if (item.media_type === "VIDEO" || item.media_type === "REELS") {
-      const views = await tryFetchMediaViews(item.id, accessToken);
-      enriched.push({ ...item, view_count: views ?? item.view_count });
+      const result = await tryFetchMediaViews(item.id, accessToken);
+      insights.push({
+        mediaId: item.id,
+        mediaType: item.media_type,
+        ok: result.views != null && !result.error,
+        views: result.views,
+        error: result.error,
+        requestUrl: result.requestUrl,
+      });
+      enriched.push({ ...item, view_count: result.views ?? item.view_count });
     } else {
       enriched.push(item);
     }
   }
-  return enriched;
+
+  return { media: enriched, insights };
 }
 
 async function tryFetchAvgReelViews(
@@ -298,13 +325,27 @@ export async function syncInstagramAccountForUser(params: {
   const profile = await fetchInstagramProfile(accessToken);
   const igId = profile.id || platformUserId;
   const rawMedia = await fetchRecentMedia(igId, accessToken, 24);
-  const media = await enrichMediaWithViews(rawMedia, accessToken);
+  const { media, insights } = await enrichMediaWithViews(rawMedia, accessToken);
   const avgReelViews = await tryFetchAvgReelViews(media, accessToken);
   const metrics = computeEngagementMetrics(
     profile.followers_count ?? 0,
     media,
     avgReelViews
   );
+
+  const insightsDiag = {
+    mediaFetched: rawMedia.length,
+    videoOrReelCount: insights.length,
+    insightsAttempted: insights.length,
+    insightsSucceeded: insights.filter((i) => i.ok).length,
+    insightsFailed: insights.filter((i) => !i.ok).length,
+    sampleRequestUrl: insights[0]?.requestUrl ?? null,
+    sampleErrors: insights
+      .filter((i) => i.error)
+      .slice(0, 3)
+      .map((i) => ({ mediaId: i.mediaId, mediaType: i.mediaType, error: i.error })),
+  };
+  console.info("[instagram/sync] insights summary", insightsDiag);
 
   let creator = await prisma.creatorProfile.findUnique({ where: { userId } });
   if (!creator) {
@@ -457,7 +498,9 @@ export async function syncInstagramAccountForUser(params: {
     profileImageUrl: profile.profile_picture_url ?? null,
     followers: profile.followers_count ?? 0,
     engagementRate: metrics.engagementRate,
+    avgReelViews: metrics.avgReelViews,
     verified: true,
+    insights: insightsDiag,
   };
 }
 
