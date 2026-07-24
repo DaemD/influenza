@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 
 const GRAPH = "https://graph.instagram.com";
-const API_VERSION = process.env.INSTAGRAM_GRAPH_API_VERSION ?? "v21.0";
+const API_VERSION = process.env.INSTAGRAM_GRAPH_API_VERSION ?? "v25.0";
 
 export type InstagramConfig = {
   appId: string;
